@@ -33,10 +33,9 @@ local function MakeWrap(name, containerprefab, tag, cheapfuel)
             inst:AddTag(tag)
         end
 
-        inst.scrapbook_specialinfo = "BUNDLEWRAP",
+        inst.scrapbook_specialinfo = "BUNDLEWRAP"
 
         inst.entity:SetPristine()
-
         if not TheWorld.ismastersim then
             return inst
         end
@@ -106,7 +105,7 @@ end
 
 local function onburnt(inst)
     inst.burnt = true
-    inst.components.unwrappable:Unwrap()
+	inst.components.unwrappable:Unwrap(nil, true)
 end
 
 local function onignite(inst)
@@ -115,6 +114,76 @@ end
 
 local function onextinguish(inst)
     inst.components.unwrappable.canbeunwrapped = true
+end
+
+local function DoJiggle(inst, looped)
+	local delay
+	local suffix = inst.variation and (inst.suffix..tostring(inst.variation)) or inst.suffix
+	inst.AnimState:PlayAnimation("jiggle"..suffix)
+	if not looped and math.random() < 0.5 then
+		delay = (0.4 + math.random() * 0.2) * inst.AnimState:GetCurrentAnimationLength()
+	else
+		inst.AnimState:PushAnimation("idle"..suffix, false)
+	end
+	inst.jiggletask = inst:DoTaskInTime(delay or math.random() * 5, DoJiggle, delay ~= nil)
+end
+
+local function TryRestartJiggle(inst)
+	if inst.jiggletask == nil and not (inst.components.inventoryitem:IsHeld() or inst:IsAsleep() or inst.pendingunwrap) then
+		inst.jiggletask = inst:DoTaskInTime(math.random() * 5, DoJiggle)
+	end
+end
+
+local function StopJiggle(inst)
+	if inst.jiggletask then
+		inst.jiggletask:Cancel()
+		inst.jiggletask = nil
+	end
+	if not inst.pendingunwrap then
+		local anim = "idle"..inst.suffix
+		if inst.variation then
+			anim = anim..tostring(inst.variation)
+		end
+		if not inst.AnimState:IsCurrentAnimation(anim) then
+			inst.AnimState:PlayAnimation(anim)
+		end
+	end
+end
+
+local function UnwrapDelay(inst, doer)
+	if inst.variation and inst.suffix == "_large" then
+		if inst.jiggletask then
+			inst.jiggletask:Cancel()
+			inst.jiggletask = nil
+		end
+		inst.components.inventoryitem.canbepickedup = false
+		inst.components.unwrappable.canbeunwrapped = false
+		inst.pendingunwrap = true
+
+		local jiggletime = 0.5
+		local suffix = inst.suffix..tostring(inst.variation)
+		if inst.components.inventoryitem:IsHeld() then
+			local idleanim = "idle"..suffix
+			inst.AnimState:PlayAnimation(idleanim)
+			local len = inst.AnimState:GetCurrentAnimationLength()
+			local droptime = 0.5
+			local loops = math.floor(droptime / len)
+			for i = 2, loops do
+				inst.AnimState:PushAnimation(idleanim)
+			end
+			inst.AnimState:PushAnimation("jiggle_unwrap"..suffix)
+			return len * loops + jiggletime
+		end
+		inst.AnimState:PlayAnimation("jiggle_unwrap"..suffix, true)
+		return jiggletime
+	end
+end
+
+--Hook this up in master_postinit to any bundle types that have animation support for jiggles.
+--Jiggles will be triggered when giftsurprise creatures are wrapped.
+local function MakeJiggle(inst)
+	inst.jiggle = true
+	inst.components.unwrappable:SetUnwrapDelayFn(UnwrapDelay)
 end
 
 local function MakeBundle(name, onesize, variations, loot, tossloot, setupdata, bank, build, inventoryimage)
@@ -146,7 +215,7 @@ local function MakeBundle(name, onesize, variations, loot, tossloot, setupdata, 
     }
 
     if loot ~= nil then
-        for i, v in ipairs(loot) do
+        for _, v in ipairs(loot) do
             table.insert(prefabs, v)
         end
     end
@@ -154,27 +223,16 @@ local function MakeBundle(name, onesize, variations, loot, tossloot, setupdata, 
     local function UpdateInventoryImage(inst)
         local suffix = inst.suffix or "_small"
         if variations ~= nil then
-            if inst.variation == nil then
-                inst.variation = math.random(variations)
-            end
-            suffix = suffix..tostring(inst.variation)
+            inst.variation = inst.variation or math.random(variations)
+            local variation_string = tostring(inst.variation)
 
-            local skin_name = inst:GetSkinName()
-            if skin_name ~= nil then
-                inst.components.inventoryitem:ChangeImageName(skin_name..(onesize and tostring(inst.variation) or suffix))
-            else
-                inst.components.inventoryitem:ChangeImageName(name..(onesize and tostring(inst.variation) or suffix))
-            end
+            suffix = (onesize and variation_string) or suffix..variation_string
+
+            inst.components.inventoryitem:ChangeImageName((inst:GetSkinName() or name)..suffix)
         elseif not onesize then
-            local skin_name = inst:GetSkinName()
-            if skin_name ~= nil then
-                inst.components.inventoryitem:ChangeImageName(skin_name..suffix)
-            else
-                inst.components.inventoryitem:ChangeImageName(name..suffix)
-            end
+            inst.components.inventoryitem:ChangeImageName((inst:GetSkinName() or name)..suffix)
         end
     end
-
 
     local function OnWrapped(inst, num, doer)
         local suffix =
@@ -196,6 +254,15 @@ local function MakeBundle(name, onesize, variations, loot, tossloot, setupdata, 
         if doer ~= nil and doer.SoundEmitter ~= nil then
             doer.SoundEmitter:PlaySound(inst.skin_wrap_sound or "dontstarve/common/together/packaged")
         end
+
+		--jiggle anims only available for large size (NOTE: "local suffix" already has variation appended)
+		if inst.jiggle and inst.suffix == "_large" then
+			inst.OnEntitySleep = StopJiggle
+			inst.OnEntityWake = TryRestartJiggle
+			inst.components.inventoryitem:SetOnDroppedFn(TryRestartJiggle)
+			inst.components.inventoryitem:SetOnPutInInventoryFn(StopJiggle)
+			TryRestartJiggle(inst)
+		end
     end
 
     local function OnUnwrapped(inst, pos, doer)
@@ -220,6 +287,7 @@ local function MakeBundle(name, onesize, variations, loot, tossloot, setupdata, 
                                 item.components.inventoryitem:OnDropped(true, .5)
                             end
                         end
+						item:PushEvent("unwrappeditem", { bundle = inst, doer = doer })
                     end
                 end
             end
@@ -233,11 +301,15 @@ local function MakeBundle(name, onesize, variations, loot, tossloot, setupdata, 
 
     local OnSave = variations ~= nil and function(inst, data)
         data.variation = inst.variation
+		data.jiggle = inst.jiggle
     end or nil
 
     local OnPreLoad = variations ~= nil and function(inst, data)
         if data ~= nil then
             inst.variation = data.variation
+			if data.jiggle and inst.MakeJiggle then
+				inst:MakeJiggle()
+			end
         end
     end or nil
 
@@ -265,6 +337,11 @@ local function MakeBundle(name, onesize, variations, loot, tossloot, setupdata, 
 
         --unwrappable (from unwrappable component) added to pristine state for optimization
         inst:AddTag("unwrappable")
+
+        if setupdata.peekcontainer then
+            --canpeek (from unwrappable component) added to pristine state for optimization
+            inst:AddTag("canpeek")
+        end
 
         if setupdata ~= nil and setupdata.common_postinit ~= nil then
             setupdata.common_postinit(inst, setupdata)
@@ -297,6 +374,7 @@ local function MakeBundle(name, onesize, variations, loot, tossloot, setupdata, 
         inst:AddComponent("unwrappable")
         inst.components.unwrappable:SetOnWrappedFn(OnWrapped)
         inst.components.unwrappable:SetOnUnwrappedFn(OnUnwrapped)
+        inst.components.unwrappable:SetPeekContainer(setupdata.peekcontainer)
         inst.UpdateInventoryImage = UpdateInventoryImage
 
         MakeSmallBurnable(inst, TUNING.SMALL_BURNTIME)
@@ -320,6 +398,25 @@ local function MakeBundle(name, onesize, variations, loot, tossloot, setupdata, 
 
     return Prefab(name, fn, assets, prefabs)
 end
+
+local bundle =
+{
+	common_postinit = function(inst, setupdata)
+		inst.SCANNABLE_RECIPENAME = "bundlewrap"
+	end,
+    peekcontainer = "bundle_container",
+}
+
+local gift =
+{
+	common_postinit = function(inst, setupdata)
+		inst.SCANNABLE_RECIPENAME = "giftwrap"
+	end,
+	master_postinit = function(inst, setupdata)
+		inst.MakeJiggle = MakeJiggle
+	end,
+    --peekcontainer = nonononono, -- NOTES(JBK): No peeking gifts naughty one.
+}
 
 local redpouch =
 {
@@ -496,6 +593,8 @@ local hermit_bundle =
     end,
 }
 
+local HERMIT_BUNDLE_SHELLS_SHELL_COUNT = 8
+
 local hermit_bundle_shells =
 {
     master_postinit = function(inst, setupdata)
@@ -505,14 +604,7 @@ local hermit_bundle_shells =
         inst:SetPrefabNameOverride("hermit_bundle")
     end,
     lootfn = function(inst, doer)
-        local loots = {}
-        local r = 0
-
-        table.insert(loots, weighted_random_choice(hermit_bundle_shell_loots))
-        table.insert(loots, weighted_random_choice(hermit_bundle_shell_loots))
-        table.insert(loots, weighted_random_choice(hermit_bundle_shell_loots))
-        table.insert(loots, weighted_random_choice(hermit_bundle_shell_loots))
-        return loots
+        return weighted_random_choices(hermit_bundle_shell_loots, HERMIT_BUNDLE_SHELLS_SHELL_COUNT)
     end,
 }
 
@@ -576,12 +668,14 @@ local wetpouch =
 
 return MakeContainer("bundle_container", "ui_bundle_2x2"),
 	MakeContainer("construction_container", "ui_construction_4x1"),
+	MakeContainer("construction_container_1x1", "ui_construction_1x1"),
 	MakeContainer("construction_repair_container", "ui_construction_4x1", "repairconstructionsite"),
+	MakeContainer("construction_rebuild_container", "ui_construction_4x1", "rebuildconstructionsite"),
     --"bundle", "bundlewrap"
-    MakeBundle("bundle", false, nil, { "waxpaper" }),
+	MakeBundle("bundle", false, nil, { "waxpaper" }, nil, bundle),
     MakeWrap("bundle", "bundle_container", nil, false),
     --"gift", "giftwrap"
-    MakeBundle("gift", false, 2),
+	MakeBundle("gift", false, 2, nil, nil, gift),
     MakeWrap("gift", "bundle_container", nil, true),
     --"redpouch"
     MakeBundle("redpouch", true, nil, { "lucky_goldnugget" }, true, redpouch),
@@ -597,4 +691,3 @@ return MakeContainer("bundle_container", "ui_bundle_2x2"),
     MakeBundle("hermit_bundle", true, nil, nil, true, hermit_bundle),
     MakeBundle("hermit_bundle_shells", true, nil, nil, true, hermit_bundle_shells, "hermit_bundle","hermit_bundle","hermit_bundle"),
     MakeBundle("wetpouch", true, nil, JoinArrays(table.getkeys(wetpouch.loottable), GetAllWinterOrnamentPrefabs()), false, wetpouch)
-

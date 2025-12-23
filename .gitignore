@@ -1,6 +1,8 @@
 # Default ignored files
 /shelf/
 .idea/
+.claude/
+.editorconfig
 /mod*
 # Ignored default folder with query files
 /queries/

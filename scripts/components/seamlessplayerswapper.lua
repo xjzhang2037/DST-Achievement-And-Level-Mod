@@ -11,6 +11,10 @@ local SeamlessPlayerSwapper = Class(function(self, inst)
 end)
 
 function SeamlessPlayerSwapper:_StartSwap(new_prefab) 
+    if not self.inst.userid or self.inst.userid == "" then
+        -- NOTES(JBK): The userid check is here for c_spawn("wonkey") that would be bad if it died.
+        return
+    end
     local clothing = self.inst.components.skinner:GetClothing()
 
 	local skin_base
@@ -54,7 +58,7 @@ function SeamlessPlayerSwapper:OnSeamlessCharacterSwap(old_player)
 
 	local new_player = self.inst
 
-	old_player:PushEvent("ms_playerreroll", self.inst:GetDisplayName()) -- remove stuff the old character might have had in the world.
+	old_player:PushEvent("ms_playerreroll") -- remove stuff the old character might have had in the world.
 	local old_data = old_player:SaveForReroll()
 	--V2C: Overwrite with full OnSave() data instead of SaveForReroll() data.
 	old_data.seamlessplayerswapper = old_player.components.seamlessplayerswapper ~= nil and old_player.components.seamlessplayerswapper:OnSave() or nil

@@ -21,9 +21,6 @@ local HUNT_UPDATE = 2
 local MIN_TRACKS = 6
 local MAX_TRACKS = 12
 
-local MONSTER_ANGLE_MIN = PI / 10
-local MONSTER_ANGLE_MAX = PI / 14
-
 local MONSTER_PRINTS_ANGLE_DEVIATION = PI / 7
 
 --------------------------------------------------------------------------
@@ -37,6 +34,7 @@ self.inst = inst
 local _activeplayers = {}
 local _activehunts = {}
 local _wargshrines = SourceModifierList(inst, false, SourceModifierList.boolean)
+local _snakeshrines = SourceModifierList(inst, false, SourceModifierList.boolean)
 
 --------------------------------------------------------------------------
 --[[ Private member functions ]]
@@ -204,7 +202,7 @@ local function SpawnDirt(pt, hunt)
         end
         hunt.lastdirt = dirt
         hunt.lastdirttime = GetTime()
-        
+
         if hunt.ambush_track_num ~= nil and hunt.ambush_track_num == hunt.trackspawned then
             local day = TheWorld.state.cycles
             local num_bats = math.min(3 + math.floor(day/35), 6)
@@ -213,7 +211,7 @@ local function SpawnDirt(pt, hunt)
             end
             hunt.ambush_track_num = nil
         end
-        
+
         local function ondirtremove()
             hunt.lastdirt = nil
             ResetHunt(hunt)
@@ -228,15 +226,16 @@ local function SpawnDirt(pt, hunt)
 end
 
 local function GetRunAngle(pt, angle, radius)
-    -- NOTES(JBK): These angles tested should create spots that are able to be tile precision in size for a given radius so the attempts will scale up on that.
-    -- The reason for this is to give the hunt the maximum probability of success since it is one try.
+    -- NOTES(JBK): These angles tested should create spots that are able to be tile precision in size for a given radius,
+    -- so the attempts will scale up on that.
+    -- The reason for this is to give the hunt the maximum probability of success (since it only tries once).
     local attempts = math.ceil(PI2 / math.asin(TILE_SCALE / radius))
     local offset, result_angle = FindWalkableOffset(pt, angle, radius, attempts, true)
     return result_angle
 end
 
 local function GetNextSpawnAngle(pt, direction, radius)
-    local base_angle = direction or math.random() * 2 * PI
+    local base_angle = direction or math.random() * PI2
     local deviation = (math.random() * 2 - 1) * TUNING.TRACK_ANGLE_DEVIATION * DEGREES
     local start_angle = base_angle + deviation
     --print(string.format("   original: %2.2f, deviation: %2.2f, starting angle: %2.2f", base_angle/DEGREES, deviation/DEGREES, start_angle/DEGREES))
@@ -367,9 +366,15 @@ OnUpdateHunt = function(inst, hunt)
 end
 
 local ALTERNATE_BEASTS = {"warg", "spat"}
-local function GetHuntedBeast(hunt, spawn_pt, doer)
-    if self:IsWargShrineActive(doer) then
+local function GetHuntedBeast(hunt, spawn_pt)
+    local wargs_active = self:IsWargShrineActive()
+    local worms_active = self:IsSnakeShrineActive()
+    if wargs_active and worms_active then
+        return (math.random() > 0.5 and "claywarg") or "yots_worm_lantern_spawner"
+    elseif wargs_active then
         return "claywarg"
+    elseif worms_active then
+        return "yots_worm_lantern_spawner"
     end
 
     -- NOTES(JBK): Very high priority for goats with all of the random elements in play.
@@ -378,18 +383,12 @@ local function GetHuntedBeast(hunt, spawn_pt, doer)
     end
 
     if hunt.monster_track_num then
-        if ShouldDoHuntedWargTrack() then
-            return "warg"
-        end
-
-        return GetRandomItem(ALTERNATE_BEASTS)
+        return (ShouldDoHuntedWargTrack() and "warg")
+            or GetRandomItem(ALTERNATE_BEASTS)
+    else
+        return (TheWorld.state.iswinter and "koalefant_winter")
+            or "koalefant_summer"
     end
-
-    if TheWorld.state.iswinter then
-        return "koalefant_winter"
-    end
-
-    return "koalefant_summer"
 end
 
 local function SpawnHuntedBeast(hunt, pt, doer)
@@ -424,9 +423,14 @@ local function SpawnHuntedBeast(hunt, pt, doer)
         doer:PushEvent("huntbeastnearby")
     end
 
-    local beastprefab = GetHuntedBeast(hunt, spawn_pt, doer)
+    local beastprefab = GetHuntedBeast(hunt, spawn_pt)
     local huntedbeast = SpawnPrefab(beastprefab)
-    huntedbeast.Physics:Teleport(spawn_pt:Get())
+    if huntedbeast.Physics then
+        huntedbeast.Physics:Teleport(spawn_pt:Get())
+    elseif huntedbeast.Transform then
+        huntedbeast.Transform:SetPosition(spawn_pt:Get())
+    end
+
     -- NOTES(JBK): Let each prefab handle the action in the event specifically.
     huntedbeast:PushEvent("spawnedforhunt", {beast = beastprefab, pt = spawn_pt, action = action, score = hunt.score})
 
@@ -489,6 +493,14 @@ local function OnWargShrineDeactivated(src, shrine)
     _wargshrines:RemoveModifier(shrine)
 end
 
+local function OnSnakeShrineActivated(src, shrine)
+    _snakeshrines:SetModifier(shrine, true)
+end
+
+local function OnSnakeShrineDeactivated(src, shrine)
+    _snakeshrines:RemoveModifier(shrine)
+end
+
 --------------------------------------------------------------------------
 --[[ Initialization ]]
 --------------------------------------------------------------------------
@@ -501,6 +513,8 @@ inst:ListenForEvent("ms_playerjoined", OnPlayerJoined, TheWorld)
 inst:ListenForEvent("ms_playerleft", OnPlayerLeft, TheWorld)
 inst:ListenForEvent("wargshrineactivated", OnWargShrineActivated, TheWorld)
 inst:ListenForEvent("wargshrinedeactivated", OnWargShrineDeactivated, TheWorld)
+inst:ListenForEvent("ms_snakeshrineactivated", OnSnakeShrineActivated, TheWorld)
+inst:ListenForEvent("ms_snakeshrinedeactivated", OnSnakeShrineDeactivated, TheWorld)
 
 --------------------------------------------------------------------------
 --[[ Public member functions ]]
@@ -552,8 +566,12 @@ function self:OnDirtInvestigated(pt, doer)
     end
 end
 
-function self:IsWargShrineActive(doer)
-    return _wargshrines:Get() and (IsSpecialEventActive(SPECIAL_EVENTS.YOTV) or doer.components.allachivcoin.shrine == true)
+function self:IsWargShrineActive()
+    return _wargshrines:Get() and IsSpecialEventActive(SPECIAL_EVENTS.YOTV)
+end
+
+function self:IsSnakeShrineActive()
+    return _snakeshrines:Get() and IsSpecialEventActive(SPECIAL_EVENTS.YOTS)
 end
 
 --------------------------------------------------------------------------
