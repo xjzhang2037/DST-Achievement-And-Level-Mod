@@ -23,18 +23,22 @@ for i = 1, NUM_HALLOWEENCANDY do
     table.insert(prefabs, "halloweencandy_"..i)
 end
 
+for i = 1, NUM_HALLOWEEN_PUMPKINCARVERS do
+    table.insert(prefabs, "pumpkincarver"..i)
+end
+
 --------------------------------------------------------------------------
 
 local MINIGAME_ITEM = "goldnugget"
 --achievement mod
-local trinket_list = {"trinket_1", "trinket_2", "trinket_3", "trinket_4", "trinket_5", "trinket_6", "trinket_7", "trinket_8", 
-                      "trinket_9", "trinket_10", "trinket_11", "trinket_12", "trinket_13", "trinket_14", "trinket_15", "trinket_16", 
-                      "trinket_17", "trinket_18", "trinket_19", "trinket_20", "trinket_21", "trinket_22", "trinket_23", "trinket_24", 
-                      "trinket_25", "trinket_26", "trinket_27", "trinket_28", "trinket_29", "trinket_30", "trinket_31", "trinket_32", 
-                      "trinket_33", "trinket_34", "trinket_35", "trinket_36", "trinket_37", "trinket_38", "trinket_39", "trinket_40", 
+local trinket_list = {"trinket_1", "trinket_2", "trinket_3", "trinket_4", "trinket_5", "trinket_6", "trinket_7", "trinket_8",
+                      "trinket_9", "trinket_10", "trinket_11", "trinket_12", "trinket_13", "trinket_14", "trinket_15", "trinket_16",
+                      "trinket_17", "trinket_18", "trinket_19", "trinket_20", "trinket_21", "trinket_22", "trinket_23", "trinket_24",
+                      "trinket_25", "trinket_26", "trinket_27", "trinket_28", "trinket_29", "trinket_30", "trinket_31", "trinket_32",
+                      "trinket_33", "trinket_34", "trinket_35", "trinket_36", "trinket_37", "trinket_38", "trinket_39", "trinket_40",
                       "trinket_41", "trinket_42", "trinket_43", "trinket_44", "trinket_45", "trinket_46", "antliontrinket",
                       }
-                      
+
 local function findprefab(list,prefab)
     for index,value in pairs(list) do
         if value == prefab then
@@ -128,8 +132,8 @@ local function ontradeforgold(inst, item, giver)
             local ornament = SpawnPrefab("winter_ornament_festivalevents"..tostring(math.random(3)))
             ornament.Transform:SetPosition(x, y, z)
             launchitem(ornament, angle)
-        end	
-		------		
+        end
+		------
     end
     -- achievement mod
     if findprefab(trinket_list,item.prefab) and giver.components.allachivevent.trader ~= true  then
@@ -174,8 +178,7 @@ local function CreateBuildingBlocker()
     inst.entity:AddPhysics()
     inst.Physics:SetMass(0)
     inst.Physics:SetCollisionGroup(COLLISION.OBSTACLES)
-    inst.Physics:ClearCollisionMask()
-    inst.Physics:CollidesWith(COLLISION.GIANTS)
+	inst.Physics:SetCollisionMask(COLLISION.GIANTS)
     inst.Physics:SetCylinder(DEPLOY_BLOCKER_RADIUS, 1)
 ]]
     inst:AddTag("NOCLICK")
@@ -336,13 +339,15 @@ end
 local function LaunchGameItem(inst, item, angle, minorspeedvariance)
     local x, y, z = inst.Transform:GetWorldPosition()
     local spd = 3.5 + math.random() * (minorspeedvariance and 1 or 3.5)
-    item.Physics:ClearCollisionMask()
-    item.Physics:CollidesWith(COLLISION.WORLD)
-    item.Physics:CollidesWith(COLLISION.SMALLOBSTACLES)
+	if bit.band(item.Physics:GetCollisionMask(), COLLISION.OBSTACLES) ~= 0 then
+		item.Physics:ClearCollidesWith(COLLISION.OBSTACLES)
+		item:DoTaskInTime(0.6, OnRestoreItemPhysics)
+	end
     item.Physics:Teleport(x, 2.5, z)
     item.Physics:SetVel(math.cos(angle) * spd, 11.5, math.sin(angle) * spd)
-    item:DoTaskInTime(.6, OnRestoreItemPhysics)
     item:PushEvent("knockbackdropped", { owner = inst, knocker = inst, delayinteraction = .75, delayplayerinteraction = .5 })
+
+    --#WARNING: you probably don't want this last part if you copy pasta this function!--
     if item.components.burnable ~= nil then
         inst:ListenForEvent("onignite", function()
             for k, v in pairs(inst._minigame_elites) do
@@ -350,6 +355,7 @@ local function LaunchGameItem(inst, item, angle, minorspeedvariance)
             end
         end, item)
     end
+    -------------------------------------------------------------------------------------
 end
 
 local PROP_MUST_TAGS = { "minigameitem", "propweapon" }
@@ -374,8 +380,8 @@ local function OnTossGameItems(inst)
         table.insert(items, MINIGAME_ITEM)
     end
 	inst._minigame_gold_tossed = inst._minigame_gold_tossed + numgold
-    local angle = math.random() * 2 * PI
-    local delta = 2 * PI / (numgold + numprops + 1) --purposely leave a random gap
+    local angle = math.random() * TWOPI
+    local delta = TWOPI / (numgold + numprops + 1) --purposely leave a random gap
     local variance = delta * .4
     while #items > 0 do
         local item = SpawnPrefab(table.remove(items, math.random(#items)))
@@ -551,7 +557,7 @@ end
 
 local function StartMinigame(inst, giver)
     if inst._minigametask == nil then
-		MINIGAME_ITEM = (IsSpecialEventActive(SPECIAL_EVENTS.YOTP) or (giver ~= nil and giver.components.allachivcoin.shrine)) and "lucky_goldnugget" or "goldnugget"																		  
+		MINIGAME_ITEM = (IsSpecialEventActive(SPECIAL_EVENTS.YOTP) or (giver ~= nil and giver.components.allachivcoin.shrine)) and "lucky_goldnugget" or "goldnugget"
         inst._minigame_score = nil
         inst._minigame_gold_tossed = 0
         inst.components.minigame:Activate()
@@ -637,6 +643,7 @@ local function teletopos(inst)
 	pt.z = pt.z + math.sin(theta) * r
 	return pt
 end
+
 --------------------------------------------------------------------------
 
 local function fn()

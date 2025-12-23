@@ -12,11 +12,13 @@ local assets =
     Asset("ANIM", "anim/werepig_basic.zip"),
     Asset("ANIM", "anim/werepig_actions.zip"),
     Asset("ANIM", "anim/pig_token.zip"),
+    Asset("ANIM", "anim/ds_pig_parasite_death.zip"),
     Asset("SOUND", "sound/pig.fsb"),
     Asset("ANIM", "anim/merm_actions.zip"),
 }
 
 local PIG_TOKEN_PREFAB = "pig_token"
+local PlayerUtility = require("AllAchiv/player_utility")
 
 local prefabs =
 {
@@ -27,6 +29,8 @@ local prefabs =
     "strawhat",
     "pigskin",
     PIG_TOKEN_PREFAB,
+
+    --"pigcorpse",
 }
 
 local MAX_TARGET_SHARES = 5
@@ -169,6 +173,10 @@ local function IsGuardPig(dude)
     return dude:HasTag("guard") and dude:HasTag("pig")
 end
 
+local function IsHost(dude)
+    return dude:HasTag("shadowthrall_parasite_hosted")
+end
+
 local function OnAttacked(inst, data)
     --print(inst, "OnAttacked")
     local attacker = data.attacker
@@ -180,7 +188,9 @@ local function OnAttacked(inst, data)
         elseif attacker.prefab ~= "deciduous_root" and not attacker:HasTag("pigelite") then
             inst.components.combat:SetTarget(attacker)
 
-            if inst:HasTag("werepig") then
+            if inst:HasTag("shadowthrall_parasite_hosted") then
+                inst.components.combat:ShareTarget(attacker, SHARE_TARGET_DIST, IsHost, MAX_TARGET_SHARES)
+            elseif inst:HasTag("werepig") then
                 inst.components.combat:ShareTarget(attacker, SHARE_TARGET_DIST, IsWerePig, MAX_TARGET_SHARES)
             elseif inst:HasTag("guard") then
                 inst.components.combat:ShareTarget(attacker, SHARE_TARGET_DIST, attacker:HasTag("pig") and IsGuardPig or IsPig, MAX_TARGET_SHARES)
@@ -193,7 +203,11 @@ end
 
 local function OnNewTarget(inst, data)
     if inst:HasTag("werepig") then
-        inst.components.combat:ShareTarget(data.target, SHARE_TARGET_DIST, IsWerePig, MAX_TARGET_SHARES)
+        if inst:HasTag("shadowthrall_parasite_hosted") then
+            inst.components.combat:ShareTarget(data.target, SHARE_TARGET_DIST, IsHost, MAX_TARGET_SHARES)
+        else
+            inst.components.combat:ShareTarget(data.target, SHARE_TARGET_DIST, IsWerePig, MAX_TARGET_SHARES)
+        end
     end
 end
 
@@ -269,32 +283,20 @@ local function OnItemLose(inst, data)
     end
 end
 
+-- Achieve Check
 local function IsSpecialAndPerk(pig, near)
-    local festiveperk = false
-    if near then
-        local pos = Vector3(pig.Transform:GetWorldPosition())
-        local ents = TheSim:FindEntities(pos.x,pos.y,pos.z, 60)
-        for k,v in pairs(ents) do
-            if v:HasTag("player") then
-                if v.components.allachivcoin.shrine == true then
-                    festiveperk = true
-                end
-            end
-        end
-    else
-        for k,v in pairs(AllPlayers) do
-            if v.components.allachivcoin.shrine == true then
-                festiveperk = true
-            end
-        end
+    if IsSpecialEventActive(SPECIAL_EVENTS.YOTP) then
+        return true
     end
-    return (IsSpecialEventActive(SPECIAL_EVENTS.YOTP) or festiveperk)
+
+    if near then
+        return PlayerUtility.AnyPlayerHasComponentProperty(pig, "shrine", 60)
+    end
+
+    return false
 end
 
 local function SetupPigToken(inst)
-    if not IsSpecialAndPerk(inst,false) then
-        return -- todo: remove this once post-yotp gameplay is done
-    end
 
     if not inst._pigtokeninitialized then
         inst._pigtokeninitialized = true
@@ -305,9 +307,6 @@ local function SetupPigToken(inst)
 end
 
 local function ReplacePigToken(inst)
-    if not IsSpecialAndPerk(inst,false) then
-        return -- todo: remove this once post-yotp gameplay is done
-    end
 
     if inst._pigtokeninitialized then
         local item = GetPigToken(inst)

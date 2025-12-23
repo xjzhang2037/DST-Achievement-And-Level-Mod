@@ -1,3 +1,5 @@
+local PlayerUtility = require("AllAchiv/player_utility")
+
 local assets =
 {
     Asset("ANIM", "anim/perd_basic.zip"),
@@ -9,6 +11,7 @@ local prefabs =
 {
     "drumstick",
     "redpouch",
+    "perdcorpse",
 }
 
 local brain = require "brains/perdbrain"
@@ -44,95 +47,48 @@ end
 --[[ For special event ]]
 --------------------------------------------------------------------------
 
+local PERD_TAGS = { "perd" }
 local function OnAttacked(inst)
-	local specialEventActive = false
-    local pos = Vector3(inst.Transform:GetWorldPosition())
-    local ents = TheSim:FindEntities(pos.x,pos.y,pos.z, 60)
-    for k,v in pairs(ents) do
-        if v:HasTag("player") then
-            if v.components.allachivcoin.shrine == true then
-                specialEventActive = true
+    local tochain = {}
+    local x, y, z = inst.Transform:GetWorldPosition()
+    for i, v in ipairs(TheSim:FindEntities(x, y, z, 14, PERD_TAGS)) do
+        if v.seekshrine then
+            v.seekshrine = nil
+            inst:RemoveEventCallback("attacked", OnAttacked)
+            if v ~= inst then
+                table.insert(tochain, v)
             end
         end
     end
-    if IsSpecialEventActive(SPECIAL_EVENTS.YOTG) or specialEventActive == true then
-		local tochain = {}
-		local x, y, z = inst.Transform:GetWorldPosition()
-		for i, v in ipairs(TheSim:FindEntities(x, y, z, 14, { "perd" })) do
-			if v.seekshrine then
-				v.seekshrine = nil
-				inst:RemoveEventCallback("attacked", OnAttacked)
-				if v ~= inst then
-					table.insert(tochain, v)
-				end
-			end
-		end
-		for i, v in ipairs(tochain) do
-			OnAttacked(v)
-		end
-	end
+    for i, v in ipairs(tochain) do
+        OnAttacked(v)
+    end
 end
 
 local function OnEat(inst, food)
-    local specialEventActive = false
-    local pos = Vector3(inst.Transform:GetWorldPosition())
-    local ents = TheSim:FindEntities(pos.x,pos.y,pos.z, 60)
-    for k,v in pairs(ents) do
-        if v:HasTag("player") then
-            if v.components.allachivcoin.shrine == true then
-                specialEventActive = true
-            end
+    --eat off the ground, not picked berries
+    if food.components.inventoryitem ~= nil and
+        not food.components.inventoryitem:IsHeld() and
+        not inst.components.timer:TimerExists("offeringcooldown") then
+        inst.sg.statemem.dropoffering = true
+        if not inst.seekshrine then
+            inst.seekshrine = true
+            inst:ListenForEvent("attacked", OnAttacked)
         end
     end
-    if IsSpecialEventActive(SPECIAL_EVENTS.YOTG) or specialEventActive == true then
-		--eat off the ground, not picked berries
-		if food.components.inventoryitem ~= nil and
-			not food.components.inventoryitem:IsHeld() and
-			not inst.components.timer:TimerExists("offeringcooldown") then
-			inst.sg.statemem.dropoffering = true
-			if not inst.seekshrine then
-				inst.seekshrine = true
-				inst:ListenForEvent("attacked", OnAttacked)
-			end
-		end
-	end
 end
 
 local function lootsetfn(lootdropper)
-    local specialEventActive = false
-    local pos = Vector3(lootdropper.inst.Transform:GetWorldPosition())
-    local ents = TheSim:FindEntities(pos.x,pos.y,pos.z, 60)
-    for k,v in pairs(ents) do
-        if v:HasTag("player") then
-            if v.components.allachivcoin.shrine == true then
-                specialEventActive = true
-            end
-        end
+    if not lootdropper.inst.components.timer:TimerExists("offeringcooldown") then
+        lootdropper:AddChanceLoot("redpouch", .1)
     end
-    if IsSpecialEventActive(SPECIAL_EVENTS.YOTG) or specialEventActive == true then
-		if not lootdropper.inst.components.timer:TimerExists("offeringcooldown") then
-			lootdropper:AddChanceLoot("redpouch", .1)
-		end
-	end
 end
 
 local function DropOffering(inst)
-    local specialEventActive = false
-    local pos = Vector3(inst.Transform:GetWorldPosition())
-    local ents = TheSim:FindEntities(pos.x,pos.y,pos.z, 60)
-    for k,v in pairs(ents) do
-        if v:HasTag("player") then
-            if v.components.allachivcoin.shrine == true then
-                specialEventActive = true
-            end
-        end
+    if not inst.components.timer:TimerExists("offeringcooldown") then
+        inst.components.timer:StartTimer("offeringcooldown", TUNING.TOTAL_DAY_TIME)
+        LaunchAt(SpawnPrefab("redpouch"), inst, inst:GetNearestPlayer(true) or inst:GetNearestPlayer(), .5, 1, .5)
     end
-    if IsSpecialEventActive(SPECIAL_EVENTS.YOTG) or specialEventActive == true then
-		if not inst.components.timer:TimerExists("offeringcooldown") then
-			inst.components.timer:StartTimer("offeringcooldown", TUNING.TOTAL_DAY_TIME)
-			LaunchAt(SpawnPrefab("redpouch"), inst, inst:GetNearestPlayer(true) or inst:GetNearestPlayer(), .5, 1, .5)
-		end
-	end
 end
 
 --------------------------------------------------------------------------
@@ -157,7 +113,7 @@ local function fn()
 
     inst:AddTag("character")
     inst:AddTag("berrythief")
-    if IsSpecialEventActive(SPECIAL_EVENTS.YOTG) then
+    if IsSpecialEventActive(SPECIAL_EVENTS.YOTG) or PlayerUtility.AnyPlayerHasComponentProperty(inst, "shrine") then
         inst:AddTag("perd")
     end
 
@@ -166,6 +122,8 @@ local function fn()
     if not TheWorld.ismastersim then
         return inst
     end
+
+	inst.override_combat_fx_height = "high"
 
     inst:AddComponent("locomotor")
     inst.components.locomotor.runspeed = TUNING.PERD_RUN_SPEED
@@ -206,15 +164,17 @@ local function fn()
     inst.OnSave = OnSave
     inst.OnLoadPostPass = OnLoadPostPass
 
-    inst:AddComponent("timer")
+    if IsSpecialEventActive(SPECIAL_EVENTS.YOTG) or PlayerUtility.AnyPlayerHasComponentProperty(inst, "shrine") then
+        inst:AddComponent("timer")
 
-    inst.components.eater:SetOnEatFn(OnEat)
-    inst.components.lootdropper:SetLootSetupFn(lootsetfn)
+        inst.components.eater:SetOnEatFn(OnEat)
+        inst.components.lootdropper:SetLootSetupFn(lootsetfn)
 
-    inst.DropOffering = DropOffering
+        inst.DropOffering = DropOffering
 
-    inst.seekshrine = true
-    inst:ListenForEvent("attacked", OnAttacked)
+        inst.seekshrine = true
+        inst:ListenForEvent("attacked", OnAttacked)
+    end
 
     return inst
 end

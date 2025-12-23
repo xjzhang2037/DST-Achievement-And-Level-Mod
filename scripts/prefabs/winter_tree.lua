@@ -503,15 +503,11 @@ local function trygifting(inst)
 end
 
 queuegifting = function(inst)
+    local PlayerUtility = require("AllAchiv/player_utility")
     local festiveperk = IsSpecialEventActive(SPECIAL_EVENTS.WINTERS_FEAST)
-    local pos = Vector3(inst.Transform:GetWorldPosition())
-    local ents = TheSim:FindEntities(pos.x,pos.y,pos.z, 80)
-    for k,v in pairs(ents) do
-        if v:HasTag("player") then
-            if v.components.allachivcoin.shrine == true then
-                festiveperk = true
-            end
-        end
+
+    if PlayerUtility.AnyPlayerHasComponentProperty(inst, "shrine") then
+        festiveperk = true
     end
 
     if festiveperk and 
