@@ -503,7 +503,7 @@ local function trygifting(inst)
 end
 
 queuegifting = function(inst)
-    local PlayerUtility = require("AllAchiv/player_utility")
+    local PlayerUtility = require("system/player_utility")
     local festiveperk = IsSpecialEventActive(SPECIAL_EVENTS.WINTERS_FEAST)
 
     if PlayerUtility.AnyPlayerHasComponentProperty(inst, "shrine") then

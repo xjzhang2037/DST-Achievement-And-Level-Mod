@@ -18,7 +18,7 @@ local assets =
 }
 
 local PIG_TOKEN_PREFAB = "pig_token"
-local PlayerUtility = require("AllAchiv/player_utility")
+local PlayerUtility = require("system/player_utility")
 
 local prefabs =
 {

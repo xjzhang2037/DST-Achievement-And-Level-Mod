@@ -1,4 +1,4 @@
-local PlayerUtility = require("AllAchiv/player_utility")
+local PlayerUtility = require("system/player_utility")
 
 local assets =
 {
