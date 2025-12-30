@@ -10,7 +10,6 @@ Steam workshop legalese is the only thing that really applies.
 The main goal of why I finally decided to take on supporting this mod was because no one aside from [Chasni's
 mod](https://steamcommunity.com/sharedfiles/filedetails/?id=2937640068)
 captured the new contents. However, it often has conflicts with a large set of other mods, and doesn't quite work with the main server I play on.
-Shameless plug here.
 
 ## Guidelines, Goals and Principles
 That being said, these are the guidelines in which I will try to stick to when working on this mod. I'm open to reviewing pull requests as well as long as they stay within these guidelines.
@@ -25,7 +24,7 @@ That being said, these are the guidelines in which I will try to stick to when w
 
 ## Roadmap
 1. Cleanup of the mod. If I intend to support it for a longer period of time, and update it with new perks, I'll require it to be in a more maintainable state. It would also be easier for other folks to help contribute.
-2. The next point is to add/remove some of the new content bosses. While updating some of the time sink achievements.
+2. The next point is to add/remove some of the new content bosses and updating some of the time sink achievements.
 3. After that, I'd be open to suggestions to the mod.
 
 ## Notes:
